@@ -1,0 +1,10 @@
+html, body { margin: 0; height: 100%; overflow: hidden; background: #222; font-family: system-ui, sans-serif; }
+canvas { display: block; }
+#info {
+  position: absolute; top: 10px; width: 100%; text-align: center;
+  color: #fff; font-size: 14px; line-height: 1.4; pointer-events: none; z-index: 1;
+}
+#error {
+  position: absolute; bottom: 70px; left: 50%; transform: translateX(-50%);
+  background: #8b1a1a; color: #fff; padding: 10px 16px; border-radius: 6px; font-size: 14px; z-index: 2;
+}

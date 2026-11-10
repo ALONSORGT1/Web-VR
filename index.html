@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <title>Web-VR | Arrastrar cubos con las manos</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <link rel="stylesheet" href="css/style.css">
+
+  <!-- three.js 0.187.0 (MIT) incluido en libs/three: funciona sin CDN -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "./libs/three/build/three.module.js",
+      "three/addons/": "./libs/three/examples/jsm/"
+    }
+  }
+  </script>
+</head>
+<body>
+  <div id="info">
+    <strong>Web-VR</strong> &middot; Arrastra los cubos con las manos o los controles<br>
+    Pellizca (o aprieta el gatillo) apuntando a un cubo para agarrarlo.
+  </div>
+  <div id="error" hidden></div>
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>
