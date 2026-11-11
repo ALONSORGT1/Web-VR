@@ -30,11 +30,92 @@ const tempMatrix = new THREE.Matrix4();
 
 init();
 
-function makeButtonMesh( x, y, z, color ) {
+/* ---------- Menu: panel y botones con textura ---------- */
 
-	const geometry = new THREE.BoxGeometry( x, y, z );
-	const material = new THREE.MeshPhongMaterial( { color: color } );
-	return new THREE.Mesh( geometry, material );
+function roundedRect( ctx, x, y, w, h, r ) {
+
+	ctx.beginPath();
+	ctx.moveTo( x + r, y );
+	ctx.arcTo( x + w, y, x + w, y + h, r );
+	ctx.arcTo( x + w, y + h, x, y + h, r );
+	ctx.arcTo( x, y + h, x, y, r );
+	ctx.arcTo( x, y, x + w, y, r );
+	ctx.closePath();
+
+}
+
+function toTexture( canvas ) {
+
+	const texture = new THREE.CanvasTexture( canvas );
+	texture.colorSpace = THREE.SRGBColorSpace;
+	texture.anisotropy = 8;
+	return texture;
+
+}
+
+function makePanelTexture( title, w, h ) {
+
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = w;
+	canvas.height = h;
+	const ctx = canvas.getContext( '2d' );
+	roundedRect( ctx, 4, 4, w - 8, h - 8, 44 );
+	ctx.fillStyle = 'rgba(20, 24, 33, 0.94)';
+	ctx.fill();
+	ctx.lineWidth = 4;
+	ctx.strokeStyle = '#3b4456';
+	ctx.stroke();
+	ctx.fillStyle = '#e9edf4';
+	ctx.font = '600 52px system-ui, "Segoe UI", sans-serif';
+	ctx.textAlign = 'center';
+	ctx.textBaseline = 'middle';
+	ctx.fillText( title, w / 2, h * 0.14 );
+	return toTexture( canvas );
+
+}
+
+function drawButton( label, color, active, w, h ) {
+
+	const canvas = document.createElement( 'canvas' );
+	canvas.width = w;
+	canvas.height = h;
+	const ctx = canvas.getContext( '2d' );
+	roundedRect( ctx, 6, 6, w - 12, h - 12, h * 0.3 );
+	ctx.fillStyle = color;
+	ctx.fill();
+	if ( active ) {
+
+		ctx.fillStyle = 'rgba(255, 255, 255, 0.18)';
+		ctx.fill();
+
+	}
+
+	ctx.lineWidth = active ? 10 : 4;
+	ctx.strokeStyle = active ? '#ffffff' : 'rgba(255, 255, 255, 0.35)';
+	ctx.stroke();
+	ctx.fillStyle = '#ffffff';
+	ctx.font = '700 ' + Math.round( h * 0.42 ) + 'px system-ui, "Segoe UI", sans-serif';
+	ctx.textAlign = 'center';
+	ctx.textBaseline = 'middle';
+	ctx.fillText( label, w / 2, h / 2 + 3 );
+	return toTexture( canvas );
+
+}
+
+function makeButton( label, color, width, height ) {
+
+	const w = 768;
+	const h = Math.round( w * height / width );
+	const textures = {
+		none: drawButton( label, color, false, w, h ),
+		active: drawButton( label, color, true, w, h )
+	};
+	const mesh = new THREE.Mesh(
+		new THREE.PlaneGeometry( width, height ),
+		new THREE.MeshBasicMaterial( { map: textures.none, transparent: true } )
+	);
+	mesh.userData.textures = textures;
+	return mesh;
 
 }
 
@@ -68,6 +149,12 @@ function init() {
 	renderer.shadowMap.enabled = true;
 	renderer.xr.enabled = true;
 	renderer.xr.cameraAutoUpdate = false;
+	// al terminar la sesion, el menu se vuelve a colocar en la siguiente
+	renderer.xr.addEventListener( 'sessionend', () => {
+
+		needsCalibration = true;
+
+	} );
 	container.appendChild( renderer.domElement );
 
 	// hand-tracking opcional: se puede entrar a VR con manos o con controles
@@ -121,29 +208,21 @@ function init() {
 	floor.receiveShadow = true;
 	scene.add( floor );
 
-	// menu
-	const menuGeometry = new THREE.PlaneGeometry( 0.24, 0.5 );
-	const menuMaterial = new THREE.MeshPhongMaterial( {
-		opacity: 0,
-		transparent: true,
-	} );
-	menuMesh = new THREE.Mesh( menuGeometry, menuMaterial );
+	// menu: panel con dos botones (reiniciar / salir)
+	menuMesh = new THREE.Mesh(
+		new THREE.PlaneGeometry( 0.46, 0.44 ),
+		new THREE.MeshBasicMaterial( { map: makePanelTexture( 'Menú', 768, 735 ), transparent: true } )
+	);
 	menuMesh.position.set( 0.4, 1, - 1 );
 	menuMesh.rotation.y = - Math.PI / 12;
 	scene.add( menuMesh );
 
-	const resetButton = makeButtonMesh( 0.2, 0.1, 0.01, 0x355c7d );
-	const resetButtonText = createText( 'reiniciar', 0.05 );
-	resetButton.add( resetButtonText );
-	resetButtonText.position.set( 0, 0, 0.0051 );
-	resetButton.position.set( 0, - 0.06, 0 );
+	const resetButton = makeButton( 'Reiniciar', '#1f8a7a', 0.38, 0.12 );
+	resetButton.position.set( 0, 0.04, 0.004 );
 	menuMesh.add( resetButton );
 
-	const exitButton = makeButtonMesh( 0.2, 0.1, 0.01, 0xff0000 );
-	const exitButtonText = createText( 'salir', 0.06 );
-	exitButton.add( exitButtonText );
-	exitButtonText.position.set( 0, 0, 0.0051 );
-	exitButton.position.set( 0, - 0.18, 0 );
+	const exitButton = makeButton( 'Salir de VR', '#c0392b', 0.38, 0.12 );
+	exitButton.position.set( 0, - 0.11, 0.004 );
 	menuMesh.add( exitButton );
 
 	instructionText = createText( 'Demo WebXR: arrastra los cubos pellizcando con las manos o con el gatillo.', 0.03 );
@@ -151,9 +230,9 @@ function init() {
 	scene.add( instructionText );
 
 	const exitText = createText( 'Saliendo de la sesion...', 0.04 );
-	exitText.position.set( 0, 1.5, - 0.6 );
+	exitText.position.set( 0, 0.29, 0.01 );
 	exitText.visible = false;
-	scene.add( exitText );
+	menuMesh.add( exitText );
 
 	for ( let i = 0; i < 20; i ++ ) {
 
@@ -294,9 +373,10 @@ function randomizeObjects() {
 
 		const object = draggable.mesh;
 		object.material.color.setHex( Math.random() * 0xffffff );
-		object.position.x = Math.random() * 2 - 1;
-		object.position.y = Math.random() * 2;
-		object.position.z = Math.random() * 2 - 1;
+		// al alcance de las manos y sin tapar el menu (que queda a ~0.9 m al frente)
+		object.position.x = Math.random() * 1.6 - 0.8;
+		object.position.y = Math.random() * 1.4 + 0.3;
+		object.position.z = Math.random() * 1.2 - 0.5;
 		object.rotation.x = Math.random() * 2 * Math.PI;
 		object.rotation.y = Math.random() * 2 * Math.PI;
 		object.rotation.z = Math.random() * 2 * Math.PI;
@@ -314,9 +394,8 @@ function calibrateMenu() {
 	if ( needsCalibration && renderer.xr.getSession() ) {
 
 		const xrCamera = renderer.xr.getCamera();
-		menuMesh.position.x = xrCamera.position.x + 0.4;
-		menuMesh.position.y = xrCamera.position.y;
-		menuMesh.position.z = xrCamera.position.z - 1;
+		menuMesh.position.set( xrCamera.position.x + 0.35, xrCamera.position.y - 0.2, xrCamera.position.z - 0.9 );
+		menuMesh.lookAt( xrCamera.position.x, menuMesh.position.y, xrCamera.position.z );
 		needsCalibration = false;
 
 	}
@@ -441,15 +520,12 @@ function updateButtons() {
 
 	buttons.forEach( button => {
 
-		if ( button.currState == 'none' ) {
-
-			button.mesh.scale.set( 1, 1, 1 );
-
-		} else {
-
-			button.mesh.scale.set( 1.1, 1.1, 1.1 );
-
-		}
+		const mesh = button.mesh;
+		const textures = mesh.userData.textures;
+		const map = button.currState == 'none' ? textures.none : textures.active;
+		if ( mesh.material.map !== map ) mesh.material.map = map;
+		const scale = button.currState == 'pressed' ? 0.96 : button.currState == 'hovered' ? 1.05 : 1;
+		mesh.scale.set( scale, scale, 1 );
 
 		if ( button.currState == 'pressed' && button.prevState != 'pressed' ) {
 
