@@ -1,8 +1,9 @@
 # Web-VR
 
 Escena WebXR con three.js basada en el ejemplo `webxr_vr_handinput_pointerdrag` de three.js (hand-tracking opcional):
-20 cubos de colores que se agarran y arrastran con **hand tracking (pellizco)** o con los **controles**,
-y un menu flotante con **Reiniciar** y **Salir**.
+20 cubos de colores con **fisica** (cannon-es): se agarran con **hand tracking (pellizco)** o con los **controles**,
+no atraviesan el suelo ni entre si, se pueden apilar, empujar y lanzar. Un menu flotante, que tambien se agarra y se mueve,
+tiene los botones **Reiniciar** y **Salir de VR**.
 
 Probado como objetivo: **Meta Quest 3** (navegador Meta Quest Browser).
 
@@ -13,6 +14,7 @@ index.html          pagina e importmap (apunta a libs/three)
 js/main.js          escena, cubos, menu e interaccion
 css/style.css       estilos
 libs/three/         three.js 0.187.0 en local (build + addons de WebXR usados)
+libs/cannon-es/     motor de fisica cannon-es 0.20.0 en local
 serve.py            servidor local
 .github/workflows/  despliegue a GitHub Pages
 ```
@@ -49,9 +51,17 @@ Abre la URL `https://<ip-de-tu-pc>:8080` en los lentes y acepta la advertencia d
 
 1. Pulsa **Enter VR**.
 2. Apunta a un cubo y pellizca (o aprieta el gatillo) para agarrarlo; suelta para dejarlo.
-3. Apunta al boton y pellizca para **Reiniciar** (cubos al azar) o **Salir** (cierra la sesion en 2 s).
+   - El cubo sigue a tu mano pero choca con el suelo y con otros cubos: no los atraviesa.
+   - Si lo sueltas en movimiento sale lanzado con la velocidad de tu mano; si lo mueves rapido contra otro cubo, lo empuja o lo manda volando segun la fuerza.
+   - Si lo apoyas con suavidad sobre otro, se queda apilado.
+3. Pellizca el panel (fuera de los botones) para **mover el menu**; siempre queda de frente a ti.
+4. Apunta al boton y pellizca para **Reiniciar** (los cubos se reparten alrededor, sin tapar lo que tienes enfrente) o **Salir de VR** (cierra la sesion en 2 s).
 
-## Actualizar three.js
+## Actualizar las librerias
+
+`libs/cannon-es/cannon-es.js` viene de `npm pack cannon-es` (`package/dist/cannon-es.js`).
+
+### three.js
 
 ```
 npm pack three
