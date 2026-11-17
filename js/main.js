@@ -10,7 +10,7 @@ import { OculusHandModel } from 'three/addons/webxr/OculusHandModel.js';
 import { OculusHandPointerModel } from 'three/addons/webxr/OculusHandPointerModel.js';
 import { createText } from 'three/addons/webxr/Text2D.js';
 
-const CUBE_COUNT = 20;
+const CUBE_COUNT = 40;
 const ROOM_HALF = 4;             // sala de 8 x 8 m
 const MAX_HOLD_SPEED = 12;       // m/s: permite lanzamientos fuertes
 const MAX_HOLD_DISTANCE = 0.8;   // si el cubo queda mas lejos de la mano (bloqueado), se suelta
