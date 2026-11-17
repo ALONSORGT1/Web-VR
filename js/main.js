@@ -12,9 +12,14 @@ import { createText } from 'three/addons/webxr/Text2D.js';
 
 const CUBE_COUNT = 20;
 const ROOM_HALF = 4;             // sala de 8 x 8 m
-const MAX_HOLD_SPEED = 8;        // m/s: velocidad maxima con la que el cubo sigue a la mano
+const MAX_HOLD_SPEED = 12;       // m/s: permite lanzamientos fuertes
 const MAX_HOLD_DISTANCE = 0.8;   // si el cubo queda mas lejos de la mano (bloqueado), se suelta
-const PHYSICS_SUBSTEPS = 2;
+const MAX_PHYSICS_STEP = 1 / 120;
+const THROW_WINDOW = 0.06;
+const IMPACT_DURATION = 0.4;
+const impactEffects = [];
+let physicsTime = 0;
+let exitTimer = null;
 
 let camera, scene, renderer, world;
 let menuMesh, menuItem, instructionText, exitText;
@@ -169,6 +174,17 @@ function init() {
 
 		needsCalibration = true;
 		handStates.concat( controllerStates ).forEach( endGrab );
+		clearTimeout( exitTimer );
+		exitTimer = null;
+		exitText.visible = false;
+		document.body.classList.remove( 'in-vr' );
+		document.getElementById( 'exit-vr' ).disabled = true;
+
+	} );
+	renderer.xr.addEventListener( 'sessionstart', () => {
+
+		document.body.classList.add( 'in-vr' );
+		document.getElementById( 'exit-vr' ).disabled = false;
 
 	} );
 	container.appendChild( renderer.domElement );
@@ -229,9 +245,9 @@ function init() {
 
 	// menu: panel con dos botones (reiniciar / salir). Tambien se puede agarrar y mover.
 	menuMesh = new THREE.Mesh(
-		new THREE.PlaneGeometry( 0.46, 0.5 ),
+		new THREE.PlaneGeometry( 0.46, 0.64 ),
 		new THREE.MeshBasicMaterial( {
-			map: makePanelTexture( 'Menú', 'Agarra el panel para moverlo', 768, 835 ),
+			map: makePanelTexture( 'Menú', 'Agarra el panel para moverlo', 768, 1068 ),
 			transparent: true
 		} )
 	);
@@ -249,6 +265,12 @@ function init() {
 	const exitButton = makeButton( 'Salir de VR', '#c0392b', 0.38, 0.12, exitSession );
 	exitButton.position.set( 0, - 0.1, 0.004 );
 	menuMesh.add( exitButton );
+	const authorText = createText( 'Desarrollado por', 0.018 );
+	authorText.position.set( 0, - 0.185, 0.006 );
+	menuMesh.add( authorText );
+	const authorName = createText( 'Alonso Ramírez Gutiérrez', 0.021 );
+	authorName.position.set( 0, - 0.213, 0.006 );
+	menuMesh.add( authorName );
 
 	instructionText = createText( 'Agarra, apila y lanza los cubos pellizcando con las manos o con el gatillo.', 0.03 );
 	instructionText.position.set( 0, 1.6, - 0.6 );
@@ -268,22 +290,33 @@ function init() {
 	}
 
 	resetCubes();
+	document.getElementById( 'reset-scene' ).addEventListener( 'click', resetCubes );
+	document.getElementById( 'exit-vr' ).addEventListener( 'click', exitSession );
 
 	window.addEventListener( 'resize', onWindowResize );
 
 	// ganchos para depuracion y pruebas automaticas
-	window.__vr = { cubes, menuItem, world, resetCubes, startGrab, endGrab, handStates, getHeadPose, animate, updateHeld, stepPhysics };
+	window.__vr = { cubes, menuItem, world, renderer, buttons, impactEffects, resetCubes, exitSession, startGrab, endGrab, handStates, getHeadPose, animate, updateHeld, stepPhysics, updateImpactEffects };
 
 }
 
 function exitSession() {
 
+	const session = renderer.xr.getSession();
+	if ( ! session || exitTimer !== null ) return;
 	exitText.visible = true;
-	setTimeout( function () {
+	exitTimer = setTimeout( async function () {
 
+		exitTimer = null;
 		exitText.visible = false;
-		const session = renderer.xr.getSession();
-		if ( session ) session.end();
+		try {
+
+			if ( renderer.xr.getSession() === session ) await session.end();
+
+		} catch ( error ) {
+
+			console.error( 'No se pudo cerrar la sesión VR:', error );
+		}
 
 	}, 2000 );
 
@@ -343,7 +376,9 @@ function createCube( geometry ) {
 	} );
 	world.addBody( body );
 
-	const item = { kind: 'cube', mesh, body, size, held: null, offset: new THREE.Matrix4() };
+	const item = { kind: 'cube', mesh, body, size, held: null, offset: new THREE.Matrix4(), motion: [], impactGlow: 0, lastImpact: - 1 };
+	body.userData = { item };
+	body.addEventListener( 'collide', event => onCubeCollision( item, event ) );
 	mesh.userData.item = item;
 	intersectables.push( mesh );
 	return item;
@@ -352,12 +387,29 @@ function createCube( geometry ) {
 
 function stepPhysics( dt ) {
 
-	const h = dt / PHYSICS_SUBSTEPS;
-	for ( let i = 0; i < PHYSICS_SUBSTEPS; i ++ ) world.step( h );
+	if ( ! Number.isFinite( dt ) || dt <= 0 ) return;
+	// El recorrido por paso es menor a 1/3 del cubo mas pequeno.
+	const minSize = Math.min( ...cubes.map( item => item.size ) );
+	let remaining = Math.min( dt, 1 / 30 );
+	while ( remaining > 1e-7 ) {
+
+		const maxSpeed = Math.max( 1, ...cubes.map( item => item.body.velocity.length() + item.body.angularVelocity.length() * item.size * 0.87 ) );
+		const h = Math.min( remaining, MAX_PHYSICS_STEP, minSize / ( 3 * maxSpeed ) );
+		world.step( h );
+		physicsTime += h;
+		remaining -= h;
+
+	}
 
 	cubes.forEach( item => {
 
 		const body = item.body;
+		if ( item.held ) {
+
+			item.motion.push( { time: physicsTime, velocity: body.velocity.clone(), angular: body.angularVelocity.clone() } );
+			while ( item.motion.length && physicsTime - item.motion[ 0 ].time > THROW_WINDOW ) item.motion.shift();
+
+		}
 		if ( body.position.y < - 2 ) placeCube( item, [] );    // red de seguridad
 		item.mesh.position.copy( body.position );
 		item.mesh.quaternion.copy( body.quaternion );
@@ -374,6 +426,73 @@ function stepPhysics( dt ) {
 
 		}
 
+
+	} );
+
+}
+
+/* ---------- Impactos: destello y onda en el punto de contacto ---------- */
+
+function onCubeCollision( item, event ) {
+
+	const contact = event.contact;
+	const speed = Math.abs( contact.getImpactVelocityAlongNormal() );
+	if ( speed < 0.8 || physicsTime - item.lastImpact < 0.1 ) return;
+	const other = event.body.userData?.item;
+	// Cannon avisa a ambos cuerpos: dibujar una sola onda por choque.
+	if ( other && item.body.id > other.body.id ) return;
+	item.lastImpact = physicsTime;
+	item.impactGlow = Math.min( 1, speed / 4 );
+	if ( other ) {
+
+		other.lastImpact = physicsTime;
+		other.impactGlow = item.impactGlow;
+
+	}
+	const point = new THREE.Vector3();
+	const offset = contact.bi === item.body ? contact.ri : contact.rj;
+	point.copy( item.body.position ).add( offset );
+	let effect = impactEffects.find( entry => ! entry.mesh.visible );
+	if ( ! effect && impactEffects.length < 12 ) {
+
+		const mesh = new THREE.Mesh(
+			new THREE.RingGeometry( 0.75, 1, 32 ),
+			new THREE.MeshBasicMaterial( { color: 0x8fffe3, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, toneMapped: false } )
+		);
+		scene.add( mesh );
+		effect = { mesh, age: 0, strength: 0 };
+		impactEffects.push( effect );
+
+	}
+	if ( ! effect ) return;
+	effect.age = 0;
+	effect.strength = Math.min( speed / 6, 1 );
+	effect.mesh.position.copy( point );
+	effect.mesh.scale.setScalar( 0.025 );
+	effect.mesh.material.opacity = 0.85;
+	effect.mesh.visible = true;
+
+}
+
+function updateImpactEffects( dt ) {
+
+	getHeadPose();
+	impactEffects.forEach( effect => {
+
+		if ( ! effect.mesh.visible ) return;
+		effect.age += dt;
+		const progress = Math.min( effect.age / IMPACT_DURATION, 1 );
+		effect.mesh.scale.setScalar( 0.025 + progress * ( 0.12 + effect.strength * 0.2 ) );
+		effect.mesh.material.opacity = 0.85 * ( 1 - progress );
+		effect.mesh.lookAt( headPos );
+		effect.mesh.visible = progress < 1;
+
+	} );
+	cubes.forEach( item => {
+
+		item.impactGlow = Math.max( 0, item.impactGlow - dt * 3 );
+		item.mesh.material.emissive.setHex( 0x63edc7 );
+		item.mesh.material.emissiveIntensity = item.impactGlow;
 
 	} );
 
@@ -433,6 +552,12 @@ function placeCube( item, placed ) {
 	body.quaternion.setFromEuler( Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28 );
 	body.velocity.set( 0, 0, 0 );
 	body.angularVelocity.set( 0, 0, 0 );
+	body.force.set( 0, 0, 0 );
+	body.torque.set( 0, 0, 0 );
+	item.motion.length = 0;
+	item.impactGlow = 0;
+	item.mesh.material.emissiveIntensity = 0;
+	item.lastImpact = physicsTime;
 	body.aabbNeedsUpdate = true;
 	item.mesh.position.copy( body.position );
 	item.mesh.quaternion.copy( body.quaternion );
@@ -441,6 +566,7 @@ function placeCube( item, placed ) {
 
 function resetCubes() {
 
+	impactEffects.forEach( effect => { effect.mesh.visible = false; } );
 	const placed = [];
 	cubes.forEach( item => {
 
@@ -477,7 +603,12 @@ function startGrab( state, item, holder ) {
 	item.held = state;
 	state.held = item;
 	state.holder = holder;
-	if ( item.body ) item.body.wakeUp();
+	if ( item.body ) {
+
+		item.motion.length = 0;
+		item.body.wakeUp();
+
+	}
 
 }
 
@@ -485,6 +616,25 @@ function endGrab( state ) {
 
 	const item = state.held;
 	if ( ! item ) return;
+	// Velocidad fisica reciente: conserva el lanzamiento y respeta los bloqueos.
+	if ( item.body && item.motion.length ) {
+
+		const recent = item.motion.filter( sample => physicsTime - sample.time <= THROW_WINDOW );
+		if ( recent.length ) {
+
+			item.body.velocity.set( 0, 0, 0 );
+			item.body.angularVelocity.set( 0, 0, 0 );
+			recent.forEach( sample => {
+
+				item.body.velocity.addScaledVector( 1 / recent.length, sample.velocity, item.body.velocity );
+				item.body.angularVelocity.addScaledVector( 1 / recent.length, sample.angular, item.body.angularVelocity );
+
+			} );
+
+		}
+		item.motion.length = 0;
+
+	}
 	item.held = null;
 	state.held = null;
 	state.holder = null;
@@ -497,9 +647,11 @@ const _m = new THREE.Matrix4();
 const _p = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _s = new THREE.Vector3();
+const _rotation = new THREE.Quaternion();
 
 function updateHeld( dt ) {
 
+	if ( ! Number.isFinite( dt ) || dt <= 0 ) return;
 	[ menuItem, ...cubes ].forEach( item => {
 
 		const state = item.held;
@@ -537,8 +689,13 @@ function updateHeld( dt ) {
 		const speed = dist / dt;
 		const k = speed > MAX_HOLD_SPEED ? MAX_HOLD_SPEED / speed : 1;
 		body.velocity.set( dx / dt * k, dy / dt * k, dz / dt * k );
-		body.quaternion.set( _q.x, _q.y, _q.z, _q.w );
-		body.angularVelocity.set( 0, 0, 0 );
+		// Rotar mediante el motor de fisica permite resolver los contactos.
+		_rotation.copy( body.quaternion ).invert().premultiply( _q ).normalize();
+		if ( _rotation.w < 0 ) _rotation.set( - _rotation.x, - _rotation.y, - _rotation.z, - _rotation.w );
+		const angle = 2 * Math.acos( THREE.MathUtils.clamp( _rotation.w, - 1, 1 ) );
+		const sinHalf = Math.hypot( _rotation.x, _rotation.y, _rotation.z );
+		const angularScale = sinHalf > 1e-6 ? Math.min( angle / dt, 20 ) / sinHalf : 0;
+		body.angularVelocity.set( _rotation.x * angularScale, _rotation.y * angularScale, _rotation.z * angularScale );
 		body.aabbNeedsUpdate = true;
 		body.wakeUp();
 
@@ -693,7 +850,8 @@ function updateHover( hovered ) {
 
 	cubes.forEach( item => {
 
-		item.mesh.scale.setScalar( item.held ? item.size : hovered.has( item.mesh ) ? item.size * 1.1 : item.size );
+		item.mesh.scale.setScalar( item.size );
+		item.mesh.material.emissiveIntensity = Math.max( item.impactGlow, hovered.has( item.mesh ) ? 0.15 : 0 );
 
 	} );
 
@@ -758,6 +916,7 @@ function animate() {
 	updateControllerRays( hovered );
 	updateHeld( dt );
 	stepPhysics( dt );
+	updateImpactEffects( dt );
 	updateHover( hovered );
 
 	renderer.render( scene, camera );
