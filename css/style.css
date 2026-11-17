@@ -1,5 +1,30 @@
 html, body { margin: 0; height: 100%; overflow: hidden; background: #222; font-family: system-ui, sans-serif; }
 canvas { display: block; }
+#desktop-controls {
+  position: absolute; top: 90px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 8px; z-index: 2;
+}
+#desktop-controls button, #credits a {
+  color: #fff; background: #263d48; border: 1px solid #718493;
+  border-radius: 10px; padding: 9px 14px; font: inherit; text-decoration: none;
+}
+#desktop-controls button { cursor: pointer; white-space: nowrap; }
+#desktop-controls button:disabled { opacity: .45; cursor: default; }
+#desktop-controls button:focus-visible, #credits a:focus-visible { outline: 3px solid #69e6c5; outline-offset: 3px; }
+#credits {
+  position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%);
+  width: max-content; max-width: calc(100% - 36px); box-sizing: border-box;
+  display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 10px;
+  color: #e9edf4; background: rgba(20, 24, 33, .92); border: 1px solid #3b4456;
+  border-radius: 16px; padding: 12px 16px; text-align: center; font-size: 13px; z-index: 2;
+}
+#credits a { padding: 6px 12px; }
+body.in-vr #credits, body.in-vr #desktop-controls, body.in-vr #info { display: none; }
+@media (max-width: 600px) {
+  #info { box-sizing: border-box; padding: 0 14px; font-size: 12px; }
+  #desktop-controls { top: 100px; font-size: 13px; }
+  #credits span { flex-basis: 100%; }
+}
 #info {
   position: absolute; top: 10px; width: 100%; text-align: center;
   color: #fff; font-size: 14px; line-height: 1.4; pointer-events: none; z-index: 1;
